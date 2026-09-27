@@ -1,6 +1,3 @@
-### File name: `user-data-explained.md`
-
-````markdown
 ## User Data Script
 
 This script prepares an Amazon Linux EC2 instance to run the application and participate in the AWS CodeDeploy deployment.
@@ -79,5 +76,3 @@ Instance Ready for Deployment
 ```
 
 The resulting EC2 instance is ready to serve the initial BLUE version and receive deployments managed by AWS CodeDeploy.
-
-````
