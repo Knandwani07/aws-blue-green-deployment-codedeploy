@@ -42,7 +42,6 @@ aws-blue-green-deployment-codedeploy/
 ├── README.md
 ├── architecture-overview.md
 ├── cleanup-guide.md
-├── demo.md
 ├── deployment-demo.md
 ├── deployment-guide.md
 └── execution-workflow.md
@@ -55,8 +54,7 @@ aws-blue-green-deployment-codedeploy/
 | `architecture-overview.md`                | Describes the AWS architecture and the components involved in the Blue/Green deployment.                               |
 | `deployment-guide.md`                     | Provides the step-by-step instructions for setting up the AWS infrastructure and performing the Blue/Green deployment. |
 | `execution-workflow.md`                   | Explains the deployment workflow from the BLUE environment through the GREEN traffic shift.                            |
-| `cleanup-guide.md`                        | Provides the steps for removing the AWS resources created for the project.                                             |
-| `demo.md`                                 | Provides additional project/demo information and deployment verification details.                                      |
+| `cleanup-guide.md`                        | Provides the steps for removing the AWS resources created for the project.                                             |                                    
 | `deployment-demo.md`                      | Shows the visual transition from the BLUE environment to the GREEN environment using deployment screenshots.           |
 | `applications/README.md`                  | Explains the application deployment packages and the purpose of the BLUE and GREEN revisions.                          |
 | `applications/app-blue.zip`               | Contains the BLUE application revision used as the initial deployment version.                                         |
