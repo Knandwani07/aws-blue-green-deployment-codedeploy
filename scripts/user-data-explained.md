@@ -25,19 +25,7 @@ systemctl start httpd
 
 Enables Apache to start automatically and starts it immediately.
 
-### 3. Create Initial Application Files
-
-```bash
-echo "BLUE" > /var/www/html/index.html
-echo "OK" > /var/www/html/health.html
-```
-
-Creates:
-
-* `index.html` — Displays the initial **BLUE** application version.
-* `health.html` — Provides the `OK` response used by the ALB health check.
-
-### 4. Install CodeDeploy Agent
+### 3. Install CodeDeploy Agent
 
 ```bash
 cd /tmp
@@ -48,7 +36,7 @@ chmod +x install
 
 Downloads and automatically installs the AWS CodeDeploy agent for the Mumbai (`ap-south-1`) Region.
 
-### 5. Start CodeDeploy Agent
+### 4. Start CodeDeploy Agent
 
 ```bash
 systemctl enable codedeploy-agent
