@@ -1,54 +1,67 @@
 ## Deployment Guide
 
-This guide walks through the complete setup and deployment of the AWS Blue/Green deployment project using **Amazon S3, IAM, VPC, EC2, Auto Scaling, Application Load Balancer, and AWS CodeDeploy**. The project uses the Mumbai (`ap-south-1`) Region. 
+This guide walks through the complete AWS Blue/Green deployment setup using Amazon S3, IAM, VPC, EC2, Auto Scaling, Application Load Balancer, and AWS CodeDeploy.
+
+> **Note:** This guide uses the Mumbai (`ap-south-1`) AWS Region. If you use another Region, update the Region-specific values accordingly.
 
 ## Prerequisites
 
 Before starting, make sure you have:
 
-* An AWS account with permissions to create IAM, VPC, EC2, ALB, Auto Scaling, CodeDeploy, and S3 resources.
-* Basic knowledge of AWS networking and load balancing.
-* A web browser for testing the ALB endpoint.
-* The following deployment packages:
+- An AWS account with the required permissions.
+- Basic knowledge of AWS VPC, EC2, ALB, Auto Scaling, IAM, and CodeDeploy.
+- `app-blue.zip` and `app-green.zip`.
+- The EC2 user-data script.
+- The `CodeDeployBlueGreenASG` inline IAM policy.
 
-  * `app-blue.zip`
-  * `app-green.zip`
-* Each ZIP must contain `appspec.yml`, `index.html`, and `health.html` at the ZIP root. 
+## Step I: Create the S3 Artifact Bucket
 
-## Step 1: Create the S3 Artifact Bucket
+1. Open **Amazon S3**.
+2. Click **Create bucket**.
+3. Configure:
 
-Create an S3 bucket for the deployment artifacts.
+```text
+Bucket Name: <your-bucket-name>
+Block Public Access: Enabled
+Bucket Versioning: Enabled
+Default Encryption: SSE-S3
+````
 
-Configure:
-
-* Bucket name: `<your-bucket-name>`
-* Block Public Access: Enabled
-* Versioning: Enabled
-* Default encryption: SSE-S3
-
-Upload:
+4. Create the bucket.
+5. Upload:
 
 ```text
 app-blue.zip
 app-green.zip
 ```
 
-Keep the object Version IDs available for reference. 
+6. Keep both files at the bucket root.
+7. Note the object Version IDs.
 
-## Step 2: Create IAM Roles
+## Step II: Create IAM Roles
 
 ### CodeDeploy Service Role
 
-Create an IAM role with:
+1. Open **IAM → Roles → Create role**.
+2. Select **AWS Service**.
+3. Select **CodeDeploy** as the use case.
+4. Name the role:
 
 ```text
-Trusted entity: AWS Service
-Use case: CodeDeploy
-Role name: CodeDeployServiceRole
-Policy: AWSCodeDeployRole
+CodeDeployServiceRole
 ```
 
-Add the following inline policy and name it `CodeDeployBlueGreenASG`:
+5. Attach:
+
+```text
+AWSCodeDeployRole
+```
+
+6. Create the role.
+
+### Add the Blue/Green ASG Policy
+
+Add the following inline policy to `CodeDeployServiceRole`:
 
 ```json
 {
@@ -67,14 +80,18 @@ Add the following inline policy and name it `CodeDeployBlueGreenASG`:
 }
 ```
 
-### EC2 Instance Role
-
-Create a second role:
+Name it:
 
 ```text
-Trusted entity: AWS Service
-Use case: EC2
-Role name: EC2CodeDeployInstanceProfile
+CodeDeployBlueGreenASG
+```
+
+### EC2 Instance Role
+
+Create an EC2 role:
+
+```text
+EC2CodeDeployInstanceProfile
 ```
 
 Attach:
@@ -84,36 +101,36 @@ AmazonS3ReadOnlyAccess
 AmazonSSMManagedInstanceCore
 ```
 
+## Step III: Create the VPC
 
-
-## Step 3: Create the VPC
-
-Create a VPC using **VPC and more**.
-
-Configure:
+1. Open **VPC → Your VPCs**.
+2. Select **Create VPC → VPC and more**.
+3. Configure:
 
 ```text
 Name: blue-green-deployment
 IPv4 CIDR: 10.0.0.0/16
+
 Availability Zones: 2
-Public subnets: 2
-Private subnets: 0
-NAT gateways: None
-VPC endpoints: None
+Public Subnets: 2
+Private Subnets: 0
+
+NAT Gateways: None
+VPC Endpoints: None
 ```
 
-The resulting public subnets should be in two Availability Zones.
+4. Create the VPC.
 
-For the documented Mumbai setup:
+For the documented setup, the public subnets are:
 
 ```text
 blue-green-deployment-subnet-public1-ap-south-1a
 blue-green-deployment-subnet-public2-ap-south-1b
 ```
 
-Verify that **Auto-assign public IPv4 address** is enabled for both subnets. 
+Verify that **Auto-assign public IPv4 address** is enabled for both public subnets.
 
-## Step 4: Create Security Groups
+## Step IV: Create Security Groups
 
 ### ALB Security Group
 
@@ -121,10 +138,9 @@ Create:
 
 ```text
 Name: alb-sg
-VPC: blue-green-deployment-vpc
 ```
 
-Inbound:
+Inbound rule:
 
 ```text
 HTTP | Port 80 | Source: 0.0.0.0/0
@@ -136,67 +152,71 @@ Create:
 
 ```text
 Name: web-app-sg
-VPC: blue-green-deployment-vpc
 ```
 
-Inbound:
+Inbound rule:
 
 ```text
 HTTP | Port 80 | Source: alb-sg
 ```
 
-This allows the ALB to reach the EC2 instances while restricting direct HTTP access to the instances. 
+Leave the default outbound rules enabled.
 
-## Step 5: Create the Target Group and ALB
+## Step V: Create the Target Group
 
-### Create Target Group
-
-Create:
+1. Open **EC2 → Target Groups**.
+2. Click **Create target group**.
+3. Configure:
 
 ```text
 Name: blue-tg
-Target type: Instances
+Target Type: Instances
 Protocol: HTTP
 Port: 80
-Health check path: /health.html
-VPC: blue-green-deployment-vpc
+VPC: blue-green-deployment
+Health Check Path: /health.html
 ```
 
+4. Create the target group.
 
+## Step VI: Create the Application Load Balancer
 
-### Create Application Load Balancer
-
-Configure:
+1. Open **EC2 → Load Balancers**.
+2. Click **Create Load Balancer**.
+3. Select **Application Load Balancer**.
+4. Configure:
 
 ```text
 Name: app-alb
 Scheme: Internet-facing
-VPC: blue-green-deployment-vpc
-Listener: HTTP : 80
-Security Group: alb-sg
 ```
 
-Select both public subnets and configure the default action to forward traffic to:
+5. Select the two public subnets.
+6. Select:
 
 ```text
-blue-tg
+Security Group: alb-sg
+Listener: HTTP : 80
+Default Action: Forward to blue-tg
 ```
 
+7. Create the load balancer.
 
+## Step VII: Create the Launch Template
 
-## Step 6: Create the Launch Template
-
-Create:
+1. Open **EC2 → Launch Templates**.
+2. Click **Create launch template**.
+3. Configure:
 
 ```text
 Name: web-app-lt
 AMI: Amazon Linux 2023
-Instance type: t2.micro
+Instance Type: t2.micro
 Security Group: web-app-sg
 IAM Instance Profile: EC2CodeDeployInstanceProfile
 ```
 
-Add the following user data:
+4. Add the user-data script:
 
 ```bash
 #!/bin/bash
@@ -205,9 +225,6 @@ dnf install -y httpd ruby wget
 
 systemctl enable httpd
 systemctl start httpd
-
-echo "BLUE" > /var/www/html/index.html
-echo "OK" > /var/www/html/health.html
 
 cd /tmp
 wget https://aws-codedeploy-ap-south-1.s3.ap-south-1.amazonaws.com/latest/install
@@ -218,213 +235,191 @@ systemctl enable codedeploy-agent
 systemctl start codedeploy-agent
 ```
 
-The user data installs Apache and the CodeDeploy agent and creates the initial BLUE application and health-check files. 
+5. Create the launch template.
 
-## Step 7: Create the Blue Auto Scaling Group
+## Step VIII: Create the BLUE Auto Scaling Group
 
-Create:
+1. Open **EC2 → Auto Scaling Groups**.
+2. Click **Create Auto Scaling group**.
+3. Configure:
 
 ```text
 Name: blue-asg
 Launch Template: web-app-lt
+VPC: blue-green-deployment
 ```
 
-Select both public subnets.
-
-Under load balancing:
+4. Select both public subnets.
+5. Under load balancing, select:
 
 ```text
 Attach to an existing load balancer
-Target group: blue-tg
-ELB health checks: Enabled
+Target Group: blue-tg
 ```
 
-Configure capacity:
+6. Enable **ELB health checks**.
+7. Configure:
 
 ```text
-Desired: 2
-Minimum: 2
-Maximum: 4
+Desired Capacity: 2
+Minimum Capacity: 2
+Maximum Capacity: 4
 ```
 
-After creation, verify that the instances register as **Healthy** in `blue-tg`.
+8. Create the Auto Scaling group.
+9. Verify that the EC2 instances become healthy in `blue-tg`.
 
-Open the ALB DNS name in a browser and verify that the **BLUE** page is displayed. 
+Open the ALB DNS name and verify that the BLUE application is displayed.
 
-## Step 8: Create the CodeDeploy Application
+## Step IX: Create the CodeDeploy Application
 
-Create an AWS CodeDeploy application:
+1. Open **AWS CodeDeploy → Applications**.
+2. Click **Create application**.
+3. Configure:
 
 ```text
-Application name: bluegreen-codedeploy-app
-Compute platform: EC2/On-Premises
+Application Name: bluegreen-codedeploy-app
+Compute Platform: EC2/On-Premises
 ```
 
-Then create the deployment group:
+4. Create the application.
+
+## Step X: Create the Deployment Group
+
+Create a deployment group:
 
 ```text
-Deployment group: app-dg
-Service role: CodeDeployServiceRole
-Deployment type: Blue/green
+Deployment Group Name: app-dg
+Service Role: CodeDeployServiceRole
+Deployment Type: Blue/green
 ```
 
-For the environment configuration:
+For the environment configuration, select:
 
 ```text
 Automatically copy Amazon EC2 Auto Scaling group
-Source ASG: blue-asg
+Source Auto Scaling Group: blue-asg
 ```
 
-Configure:
+For traffic configuration:
 
 ```text
-Traffic rerouting: Reroute traffic immediately
-Instance termination: Terminate original instances after 10 minutes
+Reroute traffic: Immediately
 ```
 
-For the load balancer:
+For instance termination, configure the required termination wait period after a successful deployment.
+
+For load balancing:
 
 ```text
-Load balancer: app-alb
-Production target group: blue-tg
+Load Balancer: app-alb
+Production Target Group: blue-tg
 ```
 
-Then create the deployment group. 
+Create the deployment group.
 
-## Step 9: Deploy the GREEN Revision
+## Step XI: Deploy the GREEN Revision
 
-Open the `app-dg` deployment group and select **Create deployment**.
-
-Configure:
+1. Open `app-dg`.
+2. Click **Create deployment**.
+3. Select:
 
 ```text
-Revision type: My application is stored in Amazon S3
-Revision location: s3://<your-bucket-name>/app-green.zip
-File type: .zip
+Revision Type:
+My application is stored in Amazon S3
+
+Revision Location:
+s3://<your-bucket-name>/app-green.zip
+
+File Type:
+.zip
 ```
 
-Start the deployment. 
+4. Click **Create deployment**.
 
-## Step 10: Monitor the Deployment
+## Step XII: Monitor the Deployment
 
-During deployment, CodeDeploy creates a replacement Auto Scaling group based on `blue-asg`.
-
-The replacement group follows a name similar to:
+CodeDeploy creates a replacement Auto Scaling group similar to:
 
 ```text
 CodeDeploy_app-dg_d-XXXXXXXXX
 ```
 
-The new instances are launched and registered with the target group.
+The replacement instances receive the GREEN revision.
 
-Monitor the deployment through stages such as:
+Monitor the deployment through:
 
 ```text
 Provisioning
-      ↓
-Installing
-      ↓
-Registering with load balancer
-      ↓
-Traffic rerouting
+→ Installing
+→ Registering with load balancer
 ```
 
+The new instances are registered with `blue-tg`.
 
+## Step XIII: Verify the Traffic Shift
 
-## Step 11: Verify GREEN
+Once the replacement instances become healthy:
 
-Refresh the ALB DNS endpoint.
+1. Open the ALB DNS name.
+2. Refresh the page.
+3. Verify that the GREEN application is displayed.
+4. Verify that the replacement instances are healthy.
+5. Verify that the original BLUE instances are draining or deregistered.
 
-The application should now display:
+Expected result:
 
 ```text
 GREEN
+CURRENTLY SERVING TRAFFIC
 ```
 
-Verify:
+## Step XIV: Roll Back if Required
 
-* GREEN instances are healthy.
-* Replacement instances are registered with `blue-tg`.
-* Original instances are being deregistered or draining.
-* The replacement Auto Scaling group exists.
-* CodeDeploy reports the deployment progress correctly. 
+The original BLUE instances remain available during the configured termination wait period.
 
-## Step 12: Roll Back if Required
+If rollback is required while they are still available:
 
-While the original BLUE instances are still available during the termination wait period, open the running deployment.
-
-Select:
+1. Open the running deployment.
+2. Click **Stop deployment**.
+3. Select **Stop and roll back deployment**, if available.
+4. Refresh the ALB endpoint.
+5. Verify that BLUE is serving traffic again.
 
 ```text
-Stop deployment
-```
-
-If available, choose:
-
-```text
-Stop and roll back deployment
-```
-
-Refresh the ALB endpoint and verify that the application returns to:
-
-```text
+GREEN
+   ↓
+Rollback
+   ↓
 BLUE
 ```
 
-A redeployment of `app-blue.zip` is different from a rollback because it starts a new Blue/Green deployment cycle. 
+If the original instances have already been terminated, use a new deployment with `app-blue.zip` instead of describing the operation as a rollback.
 
-## Step 13: Clean Up Resources
+## Step XV: Verify the Deployment
 
-After completing the deployment, remove the resources created for the project.
+Confirm:
 
-Recommended cleanup order:
+* GREEN instances are healthy.
+* GREEN is serving traffic through the ALB.
+* The deployment completes successfully.
+* The replacement Auto Scaling group was created by CodeDeploy.
+* The original instances are terminated after the configured wait period.
 
-```text
-CodeDeploy application and deployment group
-        ↓
-Auto Scaling groups
-        ↓
-EC2 instances
-        ↓
-Launch template
-        ↓
-Application Load Balancer + target group
-        ↓
-Security groups
-        ↓
-S3 bucket
-        ↓
-IAM roles
-        ↓
-VPC and associated resources
-```
-
-Verify that the CodeDeploy-created replacement ASG and all associated EC2 instances have also been removed. 
-
-## Deployment Result
-
-The completed workflow demonstrates:
+The deployment flow is:
 
 ```text
-BLUE Application
-       │
-       ▼
+BLUE
+ ↓
 CodeDeploy
-       │
-       ▼
-Replacement GREEN Fleet
-       │
-       ▼
+ ↓
+Replacement ASG
+ ↓
+GREEN Instances
+ ↓
 Health Checks
-       │
-       ▼
+ ↓
 Traffic Shift
-       │
-       ▼
-GREEN Application
-       │
-       ▼
-BLUE Termination / Rollback Window
+ ↓
+GREEN
 ```
-
-The deployment provides a repeatable Blue/Green release workflow using versioned S3 artifacts, EC2 Auto Scaling, ALB health checks, and AWS CodeDeploy. 
