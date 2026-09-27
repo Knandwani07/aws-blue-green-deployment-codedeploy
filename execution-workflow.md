@@ -23,7 +23,7 @@ health.html
 Create a CodeDeploy deployment using the GREEN revision stored in S3.
 
 ```text
-S3
+ S3
  │
  ▼
 CodeDeploy
