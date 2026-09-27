@@ -1,10 +1,66 @@
 ## Execution Workflow
 
-The execution follows a Blue/Green workflow where the existing **BLUE** environment remains active while CodeDeploy prepares and validates the replacement **GREEN** environment.
+The project uses AWS CodeDeploy Blue/Green deployment to introduce a new application version while the existing environment continues serving traffic during the deployment process.
 
-### 1. Prepare Deployment Artifact
+## Initial Environment
 
-Upload the GREEN deployment package to the versioned S3 bucket:
+```text
+Users
+  ↓
+Internet Gateway
+  ↓
+Application Load Balancer
+  ↓
+blue-tg
+  ↓
+BLUE EC2 Instances
+````
+
+The BLUE instances are managed by:
+
+```text
+blue-asg
+```
+
+The ALB checks:
+
+```text
+/health.html
+```
+
+Expected response:
+
+```text
+OK
+```
+
+## Deployment Execution
+
+```text
+app-green.zip
+      ↓
+     S3
+      ↓
+ CodeDeploy
+      ↓
+Replacement ASG
+      ↓
+GREEN EC2 Instances
+      ↓
+Deployment Hooks
+      ↓
+Health Checks
+      ↓
+blue-tg
+      ↓
+Traffic Shift
+      ↓
+GREEN Production
+```
+
+## Step 1: Store the Revision
+
+The GREEN application package is uploaded to S3:
 
 ```text
 app-green.zip
@@ -18,70 +74,206 @@ index.html
 health.html
 ```
 
-### 2. Start Deployment
+`appspec.yml` must be at the root of the ZIP.
 
-Create a CodeDeploy deployment using the GREEN revision stored in S3.
+## Step 2: Start the Deployment
 
-```text
- S3
- │
- ▼
-CodeDeploy
-```
-
-### 3. Create Replacement Fleet
-
-CodeDeploy automatically creates a replacement Auto Scaling group based on the existing `blue-asg` and launches new EC2 instances. 
+The deployment is created from:
 
 ```text
-CodeDeploy
-     │
-     ▼
-Replacement ASG
-     │
-     ▼
-New EC2 Instances
+s3://<your-bucket-name>/app-green.zip
 ```
 
-### 4. Validate Instances
+CodeDeploy uses the `app-dg` deployment group.
 
-The new instances are registered with the production target group and validated using the health check:
+## Step 3: Create the Replacement Fleet
+
+CodeDeploy copies the configuration of `blue-asg` and creates a replacement Auto Scaling group.
+
+Example:
+
+```text
+blue-asg
+    ↓
+CodeDeploy
+    ↓
+CodeDeploy_app-dg_d-XXXXXXXXX
+```
+
+The replacement ASG launches the new EC2 instances.
+
+## Step 4: Install the GREEN Revision
+
+CodeDeploy installs the GREEN revision on the new instances.
+
+The deployment progresses through stages such as:
+
+```text
+Provisioning
+      ↓
+Installing
+      ↓
+Registering
+```
+
+## Step 5: Register the GREEN Instances
+
+The replacement instances are registered with:
+
+```text
+blue-tg
+```
+
+The ALB then performs health checks against:
 
 ```text
 /health.html
 ```
 
-The expected response is:
+Expected response:
 
 ```text
 OK
 ```
 
-### 5. Shift Traffic
+## Step 6: Shift Traffic
 
-After the replacement instances are healthy, CodeDeploy reroutes production traffic to the new instances through the Application Load Balancer. 
+Once the GREEN instances are healthy, CodeDeploy shifts production traffic to them.
+
+Before:
 
 ```text
-New EC2 Instances
-       │
-       ▼
-     blue-tg
-       │
-       ▼
-Traffic Shift
-       │
-       ▼
-GREEN Production
+ALB
+ ↓
+blue-tg
+ ├── BLUE
+ └── BLUE
 ```
 
-### 6. Terminate BLUE
+After:
 
-The original BLUE instances remain available during the configured termination wait period. After the wait period, they are terminated if the deployment completes successfully. 
+```text
+ALB
+ ↓
+blue-tg
+ ├── GREEN
+ └── GREEN
+```
 
-### 7. Rollback
+The target group remains `blue-tg`; the instances serving traffic change.
 
-If required while the original instances are still running, the deployment can be stopped and rolled back to the BLUE environment. 
+## Step 7: Verify GREEN
 
-### 8. Cleanup
+Open the same ALB DNS endpoint.
 
-After testing, delete the AWS resources created for the project, including CodeDeploy resources, Auto Scaling groups, EC2 instances, ALB, target group, S3 bucket, IAM roles, security groups, and VPC resources. 
+Expected result:
+
+```text
+GREEN
+CURRENTLY SERVING TRAFFIC
+```
+
+This demonstrates that traffic has moved from the original BLUE environment to the GREEN environment.
+
+## Step 8: Termination Wait
+
+After traffic is shifted, the original BLUE instances remain available for the configured termination wait period.
+
+```text
+GREEN
+  ↓
+Serving production traffic
+
+BLUE
+  ↓
+Temporarily retained
+```
+
+After the wait period:
+
+```text
+BLUE instances
+      ↓
+Terminated
+```
+
+GREEN continues serving production traffic.
+
+## Step 9: Rollback Path
+
+If a problem is identified before the original BLUE instances are terminated:
+
+```text
+GREEN
+  ↓
+Stop deployment
+  ↓
+Stop and roll back deployment
+  ↓
+BLUE
+```
+
+The ALB endpoint should then return the BLUE application.
+
+## Step 10: New Deployment of BLUE
+
+If the rollback window has passed, deploying the previous version again is a new deployment:
+
+```text
+app-blue.zip
+     ↓
+CodeDeploy
+     ↓
+New Blue/Green Deployment
+```
+
+It should not be treated as the same rollback operation.
+
+## Complete Workflow
+
+```text
+                    ┌──────────────────┐
+                    │   app-green.zip  │
+                    └────────┬─────────┘
+                             ↓
+                    ┌──────────────────┐
+                    │       S3         │
+                    └────────┬─────────┘
+                             ↓
+                    ┌──────────────────┐
+                    │    CodeDeploy    │
+                    └────────┬─────────┘
+                             ↓
+                    ┌──────────────────┐
+                    │ Replacement ASG  │
+                    └────────┬─────────┘
+                             ↓
+                    ┌──────────────────┐
+                    │  GREEN Instances │
+                    └────────┬─────────┘
+                             ↓
+                    ┌──────────────────┐
+                    │  Health Checks   │
+                    └────────┬─────────┘
+                             ↓
+                    ┌──────────────────┐
+                    │     blue-tg      │
+                    └────────┬─────────┘
+                             ↓
+                    ┌──────────────────┐
+                    │  Traffic Shift   │
+                    └────────┬─────────┘
+                             ↓
+                    ┌──────────────────┐
+                    │ GREEN Production │
+                    └────────┬─────────┘
+                             ↓
+                  Termination Wait Period
+                             ↓
+                   ┌─────────┴─────────┐
+                   ↓                   ↓
+                Rollback            Complete
+                   ↓                   ↓
+                 BLUE                GREEN
+```
+
